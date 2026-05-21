@@ -1,0 +1,52 @@
+name: Implantação AWS EC2
+
+on:
+  workflow_run:
+    workflows: ["Builds and Tests"] # Nome exato do workflow do Arquivo 1
+    types:
+      - completed
+
+jobs:
+  Deploy_Homol:
+    name: Deploy em Homologação
+    runs-on: ubuntu-latest
+    # Só roda se o arquivo 1 deu sucesso E se a alteração veio da branch 'develop'
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop' }}
+    environment: homologacao 
+    steps:
+      - name: Deploy via SSH na EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull aupedroo/lab-cicd-fastapi:latest
+            sudo docker stop api-homol 2>/dev/null || true
+            sudo docker rm api-homol 2>/dev/null || true
+            sudo docker run -d --name api-homol --restart unless-stopped -p 8080:8080 aupedroo/lab-cicd-fastapi:latest
+            sleep 5
+            curl -f http://localhost:8080/health || exit 1
+            sudo docker image prune -f
+
+  Deploy_Prod:
+    name: Deploy em Produção
+    runs-on: ubuntu-latest
+    # Só roda se o arquivo 1 deu sucesso E se a alteração veio da branch 'main'
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    environment: producao # Este ambiente fará o workflow pausar e pedir sua aprovação
+    steps:
+      - name: Deploy via SSH na EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull aupedroo/lab-cicd-fastapi:latest
+            sudo docker stop api-prod 2>/dev/null || true
+            sudo docker rm api-prod 2>/dev/null || true
+            sudo docker run -d --name api-prod --restart unless-stopped -p 80:8080 aupedroo/lab-cicd-fastapi:latest
+            sleep 5
+            curl -f http://localhost:80/health || exit 1
+            sudo docker image prune -f

@@ -1,0 +1,50 @@
+name: Implantação AWS EC2
+
+on:
+  workflow_run:
+    workflows: ["Builds and Tests"] 
+    types:
+      - completed
+
+jobs:
+  Deploy_Homol:
+    name: Deploy em Homologação
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'develop' }}
+    environment: homologacao 
+    steps:
+      - name: Deploy via SSH na EC2 (Homologação)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST_HOMOL }} # <-- MUDANÇA AQUI: Aponta para a nova máquina
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull aupedroo/lab-cicd-fastapi:latest
+            sudo docker stop api-fastapi 2>/dev/null || true
+            sudo docker rm api-fastapi 2>/dev/null || true
+            sudo docker run -d --name api-fastapi --restart unless-stopped -p 8080:8080 aupedroo/lab-cicd-fastapi:latest
+            sleep 5
+            curl -f http://localhost:8080/health || exit 1
+            sudo docker image prune -f
+
+  Deploy_Prod:
+    name: Deploy em Produção
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main' }}
+    environment: producao 
+    steps:
+      - name: Deploy via SSH na EC2 (Produção)
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }} # <-- Continua apontando para a máquina principal
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo docker pull aupedroo/lab-cicd-fastapi:latest
+            sudo docker stop api-fastapi 2>/dev/null || true
+            sudo docker rm api-fastapi 2>/dev/null || true
+            sudo docker run -d --name api-fastapi --restart unless-stopped -p 8080:8080 aupedroo/lab-cicd-fastapi:latest
+            sleep 5
+            curl -f http://localhost:8080/health || exit 1
+            sudo docker image prune -f
